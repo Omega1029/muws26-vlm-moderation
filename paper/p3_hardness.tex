@@ -1,0 +1,115 @@
+%==============================================================================
+% MUWS 2026 draft #3 — Why is multimodal hate harder than sarcasm?
+%==============================================================================
+\documentclass[sigconf,nonacm]{acmart}
+\settopmatter{printacmref=false}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\begin{document}
+
+\title{Why Is Multimodal Hate Harder than Sarcasm?\\
+A Matched-Budget Adaptation Study with Small Vision--Language Models}
+
+\author{Anonymous Author(s)}
+\affiliation{\institution{Anonymous Institution}\country{}}
+
+\begin{abstract}
+Hateful-meme and multimodal-sarcasm detection are routinely benchmarked side by side, but
+their relative difficulty for compact models is rarely controlled. We hold the model
+(SmolVLM-500M), adaptation method (LoRA), and budget (3{,}000 examples, 2 epochs) fixed
+and compare the two tasks. Under an identical recipe, sarcasm improves by $+0.28$ AUROC
+($0.600\to0.881$) while hate improves by only $+0.04$ ($0.581\to0.619$)---a $7\times$
+difference in adaptation gain. We analyse the gap: training loss converges to $\sim$0.1
+for both tasks, yet held-out hate barely moves, indicating that the model fits
+hate-training quirks that do not transfer to the hate dev set---the signature of the
+benign-confounder design of Hateful Memes. We argue that ``multimodal toxicity'' should
+not be treated as a single difficulty class, with implications for how small-model
+moderation is benchmarked and reported.
+\end{abstract}
+
+\keywords{hateful memes, multimodal sarcasm, task difficulty, LoRA, small VLMs}
+
+\maketitle
+
+\section{Introduction}
+Papers on multimodal human understanding frequently evaluate hate and sarcasm detection
+with a shared pipeline and report them as comparable tasks. We ask a controlled question:
+under an \emph{identical} small-model adaptation budget, how much does each task actually
+improve? The answer is sharply different, and the difference is informative about what
+makes multimodal hate hard.
+
+\section{Setup}
+We fine-tune SmolVLM-500M-Instruct with LoRA~\cite{hu2022lora} ($r{=}16$, 1.85\% of
+parameters) on each task separately using the same generative yes/no SFT recipe, the same
+3{,}000 training examples per task, 2 epochs, bf16, and identical prompts. We evaluate on
+balanced splits ($n{=}500$) of Hateful Memes~\cite{kiela2020hateful} and
+MMSD2.0~\cite{qin2023mmsd2}, reporting AUROC and the prediction-positive rate. We also log
+training loss to relate fitting to generalisation.
+
+\section{Results}
+\paragraph{Adaptation gain differs $7\times$.} Table~\ref{tab:gain} shows that the same
+recipe yields a $+0.281$ AUROC gain on sarcasm but only $+0.038$ on hate.
+
+\begin{table}[t]
+\centering
+\caption{Matched-budget LoRA on SmolVLM-500M (fp16, $n{=}500$). Identical recipe; very
+different gains.}
+\label{tab:gain}
+\begin{tabular}{lccc}
+\toprule
+Task & zero-shot AUROC & +LoRA AUROC & $\Delta$ \\
+\midrule
+Hateful Memes & 0.581 & 0.619 & $+0.038$ \\
+MMSD2.0       & 0.600 & 0.881 & $+0.281$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Fitting is not the bottleneck.} Both runs drive training loss to $\sim$0.1,
+i.e.\ the model \emph{can} memorise the supervised yes/no targets for hate just as well as
+for sarcasm. Yet only sarcasm generalises to held-out data. This is consistent with the
+Hateful Memes design~\cite{kiela2020hateful}: benign confounders mean that surface
+patterns learnable from the train set do not characterise the dev set, so a small model
+with light adaptation overfits to non-transferable cues.
+
+\paragraph{De-biasing happens for both; separability only for sarcasm.} On both tasks the
+prediction-positive rate moves from $\sim$0.95 toward the base rate ($0.36$ for hate,
+$0.29$ for sarcasm), so the model stops answering with a constant label in both cases.
+The difference is that for sarcasm this de-biasing is accompanied by genuine class
+separation, whereas for hate it is not.
+
+% TODO Fig.1: (a) train-loss curves overlaid (both ->~0.1); (b) AUROC bars with deltas;
+% (c) optional qualitative confounder examples the model misclassifies.
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{1.2cm}\textit{Figure 1 (placeholder):
+overlaid training-loss curves (both converge) beside held-out AUROC gains (only sarcasm
+rises).}\vspace{1.2cm}}}
+\caption{Fitting vs.\ generalisation under a matched budget.}
+\label{fig:loss}
+\end{figure}
+
+\section{Discussion}
+The practical message is that ``multimodal toxicity detection'' bundles tasks of very
+different learnability for small models. Reporting a single small-model moderation result
+across hate and sarcasm can therefore be misleading: a recipe that looks effective on
+sarcasm may be near-useless on hate. For deployment, hate detection with compact models
+likely needs more data, harder negatives, or explicit confounder-aware training rather
+than simply more fine-tuning steps.
+
+\section{Limitations}
+Single backbone, single seed, $n{=}500$ slices, and one adaptation budget; we do not yet
+sweep training-set size, so we cannot rule out that much larger hate-training data closes
+the gap. We infer overfitting from the loss/held-out mismatch rather than a full
+attribution study.
+
+\section{Conclusion}
+Under a matched small-model LoRA budget, multimodal sarcasm is roughly $7\times$ more
+adaptable than hateful-meme detection, and the hate gap stems from generalisation, not
+fitting. Multimodal toxicity should be benchmarked as a set of distinct-difficulty tasks,
+not a single one.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{refs}
+\end{document}

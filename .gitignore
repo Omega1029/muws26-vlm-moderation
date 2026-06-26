@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+venv-tf5/
+.env
+*.log
+
+# model checkpoints (large — not tracked)
+checkpoints/
+
+# Hateful Memes images (gated dataset — not redistributable)
+data/hateful_memes/img/
+
+# compiled latex
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.synctex.gz
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.pdf

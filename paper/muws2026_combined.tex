@@ -1,0 +1,259 @@
+%==============================================================================
+% MUWS 2026 — COMBINED paper (merges the four framings into one analysis paper).
+% Compile on Overleaf: upload this file + refs.bib; compiler = pdfLaTeX; run twice.
+% NOTE: this is longer than 4 pages (~6-7). See trimming notes at the bottom of the
+% file if the CFP enforces a 4-page limit.
+%==============================================================================
+\documentclass[sigconf,nonacm]{acmart}
+\settopmatter{printacmref=false}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\begin{document}
+
+\title{Scale, Collapse, Adaptation, Transfer:\\
+What Governs Small Vision--Language Models on\\
+Multimodal Hate and Sarcasm Detection}
+
+\author{Anonymous Author(s)}
+\affiliation{\institution{Anonymous Institution}\country{}}
+
+\begin{abstract}
+Compact vision--language models (VLMs, $\leq$2B parameters) are attractive for
+privacy-preserving, on-device moderation of hateful and sarcastic multimodal content, yet
+their behaviour at this scale is poorly characterised. We present a controlled empirical
+study of three small VLMs (SmolVLM-256M, SmolVLM-500M, Gemma-4-E2B) on Hateful Memes and
+MMSD2.0, spanning zero-shot use and parameter-efficient (LoRA) adaptation, and organised
+around four findings. \textbf{(1) Scale is not enough:} the 0.5B SmolVLM is the best
+zero-shot model on both tasks and \emph{Pareto-dominates} the $\sim$4$\times$-larger
+Gemma-4-E2B, which regresses toward chance at $\sim$7$\times$ the memory.
+\textbf{(2) Zero-shot models collapse:} they answer a near-constant label (SmolVLM floods
+``yes'', 86--98\%; Gemma floods ``no'', 100\%), and standard thresholded metrics
+\emph{hide} this---a class-skewed slice yields an apparent F1 of 0.89 that is pure
+artifact. \textbf{(3) Adaptation de-biases, and exposes a difficulty gap:} under a matched
+LoRA budget, sarcasm improves by $+0.28$ AUROC but hate by only $+0.04$ ($\sim$7$\times$),
+with the model's prediction rate moving from $\sim$0.95 to the base rate in both cases.
+\textbf{(4) Transfer is asymmetric:} a hate-trained adapter raises sarcasm above its
+zero-shot floor, but a sarcasm-trained adapter does not help hate. We distil these into
+concrete reporting recommendations for small-model multimodal moderation and release a
+reproducible harness.
+\end{abstract}
+
+\keywords{multimodal hate speech, sarcasm detection, vision--language models, efficiency,
+evaluation, calibration, LoRA, cross-task transfer}
+
+\maketitle
+
+\section{Introduction}
+Hateful and sarcastic memes---image plus overlaid text---are a core target of multimodal
+human understanding on the social web. As small VLMs mature, they promise low-cost,
+privacy-preserving moderation that runs close to the user. But most multimodal
+hate/sarcasm research studies large models, leaving the behaviour of $\leq$2B models
+largely uncharted. This paper asks: \emph{what actually governs how a small VLM behaves on
+these tasks?}
+
+We study three compact models on two flagship benchmarks under a single, reproducible
+protocol, and we report four interlocking findings spanning scale, measurement,
+adaptation, and transfer. Individually each is a cautionary or practical result;
+together they form a coherent picture: at small scale, parameter count predicts little,
+zero-shot outputs are deceptive unless measured carefully, and the value of cheap
+fine-tuning is first to \emph{calibrate} the model and only then---task-dependently---to
+improve it.
+
+\noindent\textbf{Contributions.}
+\begin{itemize}
+\item A parameter--cost Pareto analysis showing a \emph{non-monotone} small-scale
+frontier where a 0.5B model dominates a 2B one (\S\ref{sec:scale}).
+\item Evidence of \emph{label-prior collapse} in zero-shot small VLMs and a demonstration
+that thresholded metrics conceal it, motivating AUROC + a prediction-distribution
+diagnostic (\S\ref{sec:collapse}).
+\item A matched-budget LoRA study revealing a $\sim$7$\times$ adaptation-difficulty gap
+between sarcasm and hate, and that fine-tuning's first-order effect is de-biasing
+(\S\ref{sec:adapt}).
+\item A hate$\leftrightarrow$sarcasm cross-task transfer matrix exhibiting a clear
+asymmetry (\S\ref{sec:transfer}).
+\end{itemize}
+
+\section{Related Work}
+The Hateful Memes Challenge~\cite{kiela2020hateful} was designed with ``benign
+confounders'' so unimodal or shallow models fail; it remains a hard multimodal-reasoning
+benchmark. MMSD2.0~\cite{qin2023mmsd2} re-annotates the multimodal sarcasm corpus of
+\citet{cai2019multimodal} to remove spurious text-only cues, and harmful-meme corpora such
+as HarMeme~\cite{pramanick2021harmeme} extend the hate setting to new domains. Efficient
+instruction-tuned VLMs such as SmolVLM~\cite{marafioti2025smolvlm}, built on
+Idefics3~\cite{laurencon2024idefics3}, and omni models such as Gemma~\cite{gemma2025} make
+$\leq$2B multimodal deployment feasible. LoRA~\cite{hu2022lora} enables cheap
+task adaptation. Calibration of neural classifiers is well studied in the unimodal
+setting~\cite{guo2017calibration}; we bring that lens to zero-shot multimodal moderation
+and show that prediction-distribution \emph{collapse}, not merely confidence
+miscalibration, is the dominant failure. Zero-shot transfer of vision--language
+representations is established for recognition~\cite{radford2021clip}; we examine
+cross-\emph{task} transfer between two human-understanding tasks.
+
+\section{Experimental Setup}\label{sec:setup}
+\textbf{Models.} SmolVLM-256M-Instruct, SmolVLM-500M-Instruct, and Gemma-4-E2B
+($\sim$2B effective parameters). \textbf{Tasks.} Hateful Memes (hateful vs.\ not; balanced
+dev split, $n{=}500$) and MMSD2.0 (\texttt{mmsd-v2}; sarcastic vs.\ not; test split,
+$n{=}500$). \textbf{Prompting and scoring.} Each model receives a task instruction, the
+image, and a yes/no question; we read $P(\text{yes})$ from the softmax over the yes/no
+answer tokens (a continuous score for AUROC) and threshold at 0.5 for hard labels. Gemma
+ships without a chat template and is prompted with a flattened raw prompt.
+\textbf{Adaptation.} For LoRA~\cite{hu2022lora} we use rank 16 on the
+query/key/value/output and gate/up/down projections (1.85\% of parameters) and a
+generative SFT objective: supervise the yes/no answer tokens only, masking the prompt.
+We train on 3{,}000 in-domain examples for 2 epochs in bf16. \textbf{Metrics.} AUROC
+(rank-based, threshold-free), accuracy, and the \emph{prediction-positive rate}
+(\texttt{pred\_pos}). \textbf{Hardware/repro.} A single NVIDIA A100 (80GB); memory is peak
+allocated and latency is the median of 50 timed single-sample runs after warmup. The
+harness loads each model once and appends one JSONL record per cell; all runs use a fixed
+seed.
+
+\section{Finding 1: Scale Is Not Enough}\label{sec:scale}
+Table~\ref{tab:zs} reports zero-shot quality against cost. The frontier is
+\emph{non-monotone}: SmolVLM-256M is at chance, SmolVLM-500M is best on both tasks, and
+the larger Gemma-4-E2B falls back toward chance while consuming $\sim$7$\times$ the memory
+and higher latency. SmolVLM-500M therefore \emph{Pareto-dominates} Gemma-4-E2B---higher
+AUROC on both tasks at a fraction of the cost. At the scale relevant to on-device
+moderation, architecture, data, and instruction tuning matter more than raw parameter
+count.
+
+\begin{table}[t]
+\centering
+\caption{Zero-shot quality vs.\ cost (fp16, $n{=}500$, one A100). AUROC is the trustworthy
+quality metric (see \S\ref{sec:collapse}); \texttt{pred\_pos} exposes constant-answer
+behaviour. The 0.5B model leads at a fraction of the 2B model's cost.}
+\label{tab:zs}
+\begin{tabular}{lccccc}
+\toprule
+& \multicolumn{2}{c}{AUROC} & & Mem & Lat. \\
+\cmidrule(lr){2-3}
+Model & Hate & Sarc. & \texttt{pred\_pos} & (MB) & (ms) \\
+\midrule
+SmolVLM-256M & 0.513 & 0.502 & 0.86--0.98 & \(\sim\)960 & 70 \\
+SmolVLM-500M & \textbf{0.581} & \textbf{0.600} & 0.93--0.98 & \(\sim\)1450 & 69 \\
+Gemma-4-E2B  & 0.528 & 0.527 & 0.00 & \(\sim\)10170 & 86 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% TODO Fig.1: accuracy--memory Pareto scatter (log-x), frontier dashed, star = +LoRA.
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{1.0cm}\textit{Figure 1 (placeholder):
+accuracy--memory Pareto scatter; SmolVLM-500M dominates Gemma-4-E2B; +LoRA point
+highest.}\vspace{1.0cm}}}
+\caption{Small-scale accuracy--cost frontier.}
+\label{fig:pareto}
+\end{figure}
+
+\section{Finding 2: Zero-Shot Models Collapse, and Metrics Hide It}\label{sec:collapse}
+The AUROC values above (0.50--0.60) already indicate weak separability, but the
+\texttt{pred\_pos} column reveals the mechanism: SmolVLM answers ``yes'' for 86--98\% of
+inputs and Gemma answers ``no'' for 100\%. These models do not behave as classifiers;
+they emit a near-constant label.
+
+This makes thresholded metrics dangerous. Because predictions are nearly constant, F1 and
+accuracy are governed by the class balance of the evaluation slice rather than the model.
+On a small, positive-skewed slice ($n{=}50$) of MMSD2.0 we measured an apparent
+\textbf{F1 of 0.89} for SmolVLM-256M; on a balanced $n{=}500$ slice the same configuration
+gives AUROC 0.50 and accuracy below the majority baseline. The high F1 was an artifact of
+a ``yes''-saying model meeting a mostly-positive slice. We therefore report AUROC
+(threshold-free) and \texttt{pred\_pos} (or the full score histogram, Fig.~\ref{fig:hist})
+as the minimal honest standard for small-VLM moderation results.
+
+% TODO Fig.2: per-model P(yes) histograms (mass at 0/1) + reliability diagram.
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{1.0cm}\textit{Figure 2 (placeholder):
+$P(\text{yes})$ histograms per model with mass collapsed near 0 or 1; reliability
+diagram.}\vspace{1.0cm}}}
+\caption{Prediction-distribution diagnostic for collapse.}
+\label{fig:hist}
+\end{figure}
+
+\section{Finding 3: Adaptation De-biases and Reveals a Difficulty Gap}\label{sec:adapt}
+We fine-tune the best small model, SmolVLM-500M, with LoRA on each task under an identical
+recipe (\S\ref{sec:setup}). Two effects stand out (Table~\ref{tab:matrix}, diagonal).
+
+\noindent\textbf{De-biasing first.} On both tasks, \texttt{pred\_pos} moves from
+$\sim$0.95 toward the true base rate ($0.36$ hate, $0.29$ sarcasm): fine-tuning's
+first-order effect is to stop the constant-answer collapse.
+
+\noindent\textbf{A $\sim$7$\times$ difficulty gap.} Separability then improves
+dramatically for sarcasm ($0.600\to0.881$, $+0.28$ AUROC) but only marginally for hate
+($0.581\to0.619$, $+0.04$). Notably, training loss converges to $\sim$0.1 for \emph{both}
+tasks---the model can memorise the hate targets just as well---yet held-out hate barely
+moves. This fitting/generalisation mismatch is the signature of the benign-confounder
+design of Hateful Memes~\cite{kiela2020hateful}: learnable train-set patterns do not
+characterise the dev set. ``Multimodal toxicity'' thus bundles tasks of very different
+learnability for small models.
+
+\section{Finding 4: Cross-Task Transfer Is Asymmetric}\label{sec:transfer}
+Evaluating every adapter on both tasks (Table~\ref{tab:matrix}, off-diagonal) reveals a
+directional asymmetry. The \emph{hate}-trained adapter raises sarcasm to 0.668---above the
+sarcasm zero-shot floor (0.600) and above its own in-domain hate score (0.619). The
+\emph{sarcasm}-trained adapter leaves hate essentially at the floor ($0.581\to0.594$). The
+transferable ingredient appears to be calibrated image--text grounding (the de-biasing of
+Finding 3) rather than task-specific content; learning to resolve a hate confounder
+instils a general ``read image and text together, commit to a decision'' behaviour that
+benefits sarcasm, whereas the reverse does not hold. Practically, when target adaptation
+data is scarce, a hate adapter is a better warm start for sarcasm than the converse.
+
+\begin{table}[t]
+\centering
+\caption{Cross-task transfer matrix, SmolVLM-500M (fp16, $n{=}500$): AUROC
+(\texttt{pred\_pos}). Diagonal $=$ in-domain (bold); off-diagonal $=$ cross-task.}
+\label{tab:matrix}
+\begin{tabular}{lcc}
+\toprule
+\textbf{train} $\downarrow$ / \textbf{eval} $\rightarrow$ & Hateful Memes & MMSD2.0 \\
+\midrule
+zero-shot (floor) & 0.581 (0.93) & 0.600 (0.98) \\
+LoRA-Hate         & \textbf{0.619 (0.36)} & 0.668 (0.61) \\
+LoRA-Sarcasm      & 0.594 (0.65) & \textbf{0.881 (0.29)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion and Recommendations}
+Taken together, the findings argue for a particular practice when building or evaluating
+small-model multimodal moderation. \emph{On model choice:} prefer a strong 0.5B model plus
+a task adapter over a larger zero-shot model---both for quality and for the memory/latency
+budget that decides on-device feasibility. \emph{On reporting:} always report AUROC and
+the prediction-positive rate (or score histogram); evaluate on balanced or full splits;
+and avoid small skewed slices that manufacture inflated F1. \emph{On adaptation:} separate
+the de-biasing component of fine-tuning from genuine separability gains, and do not treat
+hate and sarcasm as equally learnable---hate detection with compact models likely needs
+more data or confounder-aware training, not just more steps. \emph{On transfer:} an
+adapter from a harder, grounding-heavy task can serve as a useful low-resource warm start
+for a related task.
+
+\section{Limitations}
+We study three models, two datasets, and single-seed runs on $n{=}500$ balanced slices
+(AUROC CI $\approx\pm0.03$--$0.04$). We use fixed prompts; Gemma-4-E2B is evaluated with a
+raw prompt (no chat template), so its collapse may partly reflect prompt sensitivity. We
+do not include the full size ladder (e.g.\ 2.2B SmolVLM, a 7B anchor), weight
+quantisation, multiple training-set sizes, or true same-task cross-\emph{domain} transfer
+(e.g.\ HarMeme~\cite{pramanick2021harmeme}); each would strengthen the corresponding
+finding. Claims are restricted to the small-VLM, light-LoRA regime measured here.
+
+\section{Conclusion}
+At the small scale relevant to on-device moderation, parameter count is a poor predictor
+of multimodal-understanding quality; zero-shot small VLMs collapse to a constant label
+that thresholded metrics conceal; light LoRA primarily de-biases before it improves,
+revealing that sarcasm is far more adaptable than the adversarially hard Hateful Memes;
+and cross-task transfer between the two is real but asymmetric. We hope the accompanying
+reporting recommendations and open harness improve how small multimodal moderation models
+are built and evaluated.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{refs}
+
+%==============================================================================
+% TRIMMING TO 4 PAGES (if the CFP enforces it):
+%  - Merge Findings 3 & 4 under one "Adaptation and Transfer" section; keep Table 2 only.
+%  - Cut Figure 2 (keep the F1-artifact paragraph) and/or Figure 1.
+%  - Compress Related Work to 4-5 sentences; move recommendations into the conclusion.
+%  - Drop the per-contribution itemize in the intro.
+%==============================================================================
+\end{document}

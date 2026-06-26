@@ -1,0 +1,124 @@
+%==============================================================================
+% MUWS 2026 draft #2 — Asymmetric cross-task transfer
+%==============================================================================
+\documentclass[sigconf,nonacm]{acmart}
+\settopmatter{printacmref=false}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\begin{document}
+
+\title{Hate Helps Sarcasm, but Not the Reverse:\\
+Asymmetric Cross-Task Transfer in Small Multimodal Models}
+
+\author{Anonymous Author(s)}
+\affiliation{\institution{Anonymous Institution}\country{}}
+
+\begin{abstract}
+Hateful-meme detection and multimodal sarcasm detection are both treated as ``human
+understanding'' tasks, but it is unclear whether they share transferable structure. We
+fine-tune a single small vision--language model (SmolVLM-500M) with LoRA on each task and
+evaluate every adapter on both tasks. We find a striking \emph{asymmetry}: an adapter
+trained only on Hateful Memes raises sarcasm AUROC from 0.600 to 0.668---above the
+sarcasm zero-shot floor and even above the model's own in-domain hate performance
+(0.619)---whereas an adapter trained on sarcasm barely moves hate (0.581$\to$0.594). We
+argue that hate fine-tuning instils a general ``attend to the image--text relation and
+commit to a calibrated decision'' behaviour that partially transfers, while sarcasm
+fine-tuning learns a more task-specific cue. The asymmetry has practical implications for
+which task to use as a source when adaptation data is scarce.
+\end{abstract}
+
+\keywords{cross-task transfer, multimodal sarcasm, hateful memes, LoRA, small VLMs}
+
+\maketitle
+
+\section{Introduction}
+Parameter-efficient fine-tuning makes it cheap to specialise a small VLM for one
+multimodal human-understanding task. But adaptation data is scarce for many target
+domains, raising the question: does fine-tuning on one task help a \emph{different} task?
+We study the two flagship multimodal tasks---hateful-meme detection~\cite{kiela2020hateful}
+and sarcasm detection~\cite{qin2023mmsd2}---and report a clear directional asymmetry in
+transfer. To our knowledge this is the first explicit hate$\leftrightarrow$sarcasm
+cross-task transfer matrix for a small VLM.
+
+\section{Method}
+We use SmolVLM-500M-Instruct as a single backbone. For each source task we train a LoRA
+adapter~\cite{hu2022lora} ($r{=}16$; query/key/value/output and gate/up/down projections;
+1.85\% of parameters) in a generative SFT setup: the model is supervised to emit
+``yes''/``no'' for the task's yes/no question, with loss on the answer tokens only. We
+train on 3{,}000 examples for 2 epochs in bf16. We then evaluate every adapter (and the
+zero-shot base model) on the balanced evaluation split of \emph{both} tasks, scoring
+$P(\text{yes})$ over the answer tokens and reporting AUROC and the prediction-positive
+rate. Each (train, eval) pair is one cell of a transfer matrix; cells where train and
+eval tasks differ are cross-task transfer.
+
+\section{Results}
+Table~\ref{tab:matrix} gives the full transfer matrix. Three observations:
+
+\noindent\textbf{(1) In-domain gains are large for sarcasm, small for hate.}
+Sarcasm jumps $0.600\to0.881$ AUROC; hate moves only $0.581\to0.619$, consistent with
+Hateful Memes being designed to defeat shallow cues.
+
+\noindent\textbf{(2) Transfer is asymmetric.} The hate-trained adapter \emph{raises}
+sarcasm to 0.668---above the sarcasm zero-shot floor (0.600) and above the hate-trained
+adapter's own in-domain hate score (0.619). The sarcasm-trained adapter, by contrast,
+leaves hate essentially at the floor (0.581$\to$0.594).
+
+\noindent\textbf{(3) The transferable component looks like calibration.} The
+prediction-positive rate (parenthesised) shows that hate fine-tuning pulls the model out
+of its zero-shot ``always yes'' collapse on \emph{both} tasks, while task-specific
+separability is only fully recovered in-domain.
+
+\begin{table}[t]
+\centering
+\caption{Cross-task transfer matrix, SmolVLM-500M (fp16, $n{=}500$): AUROC
+(\texttt{pred\_pos}). Diagonal $=$ in-domain; off-diagonal $=$ cross-task. Bold $=$
+in-domain.}
+\label{tab:matrix}
+\begin{tabular}{lcc}
+\toprule
+\textbf{train} $\downarrow$ / \textbf{eval} $\rightarrow$ & Hateful Memes & MMSD2.0 \\
+\midrule
+zero-shot (floor) & 0.581 (0.93) & 0.600 (0.98) \\
+LoRA-Hate         & \textbf{0.619 (0.36)} & 0.668 (0.61) \\
+LoRA-Sarcasm      & 0.594 (0.65) & \textbf{0.881 (0.29)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% TODO Fig.1: bar plot of AUROC by (train, eval) grouping; highlight the hate->sarcasm bar
+% exceeding both floors. Optional: attention/saliency qualitative panel.
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{1.2cm}\textit{Figure 1 (placeholder):
+AUROC grouped by source task, showing hate$\to$sarcasm above the sarcasm
+floor.}\vspace{1.2cm}}}
+\caption{Asymmetric transfer visualised.}
+\label{fig:bars}
+\end{figure}
+
+\section{Discussion}
+Why would training on hate help sarcasm more than the reverse? Hateful Memes requires
+integrating an image with overlaid text to resolve a benign confounder; learning to do
+this appears to instil a general image--text grounding and decision-commitment behaviour
+that benefits sarcasm, which also hinges on an image--text mismatch. Sarcasm, in
+contrast, may be solvable via a narrower incongruity cue that does not generalise back to
+hate. A practical corollary: when target adaptation data is limited, a hate-detection
+adapter is a better ``warm start'' for sarcasm than the converse.
+
+\section{Limitations}
+The matrix is $2\times2$ on single-seed $n{=}500$ slices (CI $\approx\pm0.03$--$0.04$),
+so the asymmetry, while consistent, should be confirmed with more seeds, full splits, and
+a third task (e.g.\ harmful memes~\cite{pramanick2021harmeme}). We use one backbone and a
+fixed prompt; the de-biasing interpretation is suggestive rather than mechanistically
+proven.
+
+\section{Conclusion}
+For a small multimodal model, fine-tuning on hateful-meme detection transfers
+positively to sarcasm, but sarcasm fine-tuning does not transfer back to hate. The
+transferable ingredient appears to be calibrated image--text grounding rather than
+task-specific content, which is useful guidance for low-resource adaptation.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{refs}
+\end{document}

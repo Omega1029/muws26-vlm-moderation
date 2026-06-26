@@ -1,0 +1,127 @@
+%==============================================================================
+% MUWS 2026 draft #4 — Bigger is not better (parameter-performance Pareto, no quant)
+%==============================================================================
+\documentclass[sigconf,nonacm]{acmart}
+\settopmatter{printacmref=false}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\begin{document}
+
+\title{Bigger Is Not Better: A Parameter--Performance Pareto Analysis of\\
+Small Vision--Language Models for Multimodal Hate and Sarcasm Detection}
+
+\author{Anonymous Author(s)}
+\affiliation{\institution{Anonymous Institution}\country{}}
+
+\begin{abstract}
+On-device moderation favours compact vision--language models, but it is unclear how the
+accuracy--cost frontier behaves at small scale. We benchmark three small VLMs
+(SmolVLM-256M, SmolVLM-500M, Gemma-4-E2B) on Hateful Memes and MMSD2.0, measuring AUROC
+against memory and latency on a single GPU. We find a non-monotone frontier: SmolVLM-256M
+sits at chance, SmolVLM-500M is the best zero-shot model on both tasks, and the
+$\sim$4$\times$-larger Gemma-4-E2B \emph{regresses} toward chance while using
+$\sim$7$\times$ the memory and higher latency. SmolVLM-500M thus Pareto-dominates the
+larger model. Adding LoRA to SmolVLM-500M---a tiny additive cost---moves it far up the
+frontier, especially for sarcasm (AUROC $0.600\to0.881$). The headline result is that, at
+the small-model scale relevant to deployment, parameter count is a poor predictor of
+multimodal-understanding quality, and a well-chosen 0.5B model beats a 2B one.
+\end{abstract}
+
+\keywords{efficient VLMs, on-device moderation, Pareto frontier, hateful memes, sarcasm}
+
+\maketitle
+
+\section{Introduction}
+Privacy-preserving and low-cost moderation pushes toward small VLMs, yet most multimodal
+hate/sarcasm work studies large models. We characterise the small-scale accuracy--cost
+frontier directly. Our finding contradicts the ``scale up'' intuition: across our models,
+the best multimodal-understanding performance comes from a 0.5B model, not the 2B one,
+and the larger model is strictly dominated once memory and latency are accounted for.
+
+\section{Setup}
+\textbf{Models.} SmolVLM-256M/500M-Instruct~\cite{marafioti2025smolvlm,laurencon2024idefics3}
+and Gemma-4-E2B (\(\sim\)2B effective parameters)~\cite{gemma2025}. \textbf{Tasks.}
+Hateful Memes~\cite{kiela2020hateful} (balanced dev, 500) and MMSD2.0~\cite{qin2023mmsd2}
+(\texttt{mmsd-v2} test, 500). \textbf{Metrics.} AUROC for quality (robust to the label-prior
+bias these models exhibit); peak GPU memory and median single-sample latency
+(batch 1, 50 timed runs after warmup) on one NVIDIA A100 for cost. We report zero-shot
+performance and, for the best small model, the effect of LoRA~\cite{hu2022lora}.
+
+\section{Results}
+
+\begin{table}[t]
+\centering
+\caption{Zero-shot quality vs.\ cost (fp16, $n{=}500$, one A100). The 0.5B model leads on
+quality at a fraction of the larger model's memory/latency.}
+\label{tab:pareto}
+\begin{tabular}{lcccc}
+\toprule
+Model & \multicolumn{2}{c}{AUROC} & Peak mem & Latency \\
+      & Hate & Sarcasm & (MB) & (ms) \\
+\midrule
+SmolVLM-256M & 0.513 & 0.502 & \(\sim\)960  & 70 \\
+SmolVLM-500M & \textbf{0.581} & \textbf{0.600} & \(\sim\)1{,}450 & 69 \\
+Gemma-4-E2B  & 0.528 & 0.527 & \(\sim\)10{,}170 & 86 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The frontier is non-monotone.} Table~\ref{tab:pareto} shows SmolVLM-256M at
+chance, SmolVLM-500M best on both tasks, and Gemma-4-E2B falling back toward chance
+despite far greater cost. SmolVLM-500M \emph{Pareto-dominates} Gemma-4-E2B: higher AUROC
+on both tasks at $\sim$1/7 the memory and lower latency.
+
+\paragraph{Cheap adaptation, not scale, moves the frontier.} Adding a LoRA adapter
+(1.85\% extra parameters, negligible inference overhead) to SmolVLM-500M lifts sarcasm
+AUROC to 0.881 and hate to 0.619 (Table~\ref{tab:lora})---gains unattainable by swapping
+to the larger zero-shot model.
+
+\begin{table}[t]
+\centering
+\caption{LoRA on the best small model (SmolVLM-500M, fp16, $n{=}500$).}
+\label{tab:lora}
+\begin{tabular}{lcc}
+\toprule
+Condition & Hate AUROC & Sarcasm AUROC \\
+\midrule
+zero-shot & 0.581 & 0.600 \\
++ LoRA (in-domain) & 0.619 & 0.881 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% TODO Fig.1: scatter of AUROC (y) vs peak memory (x, log) per model, Pareto frontier
+% dashed; star = +LoRA SmolVLM-500M. Generate from results/leaderboard.jsonl.
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{1.2cm}\textit{Figure 1 (placeholder):
+accuracy--memory Pareto scatter; SmolVLM-500M dominates Gemma-4-E2B; LoRA point sits
+highest.}\vspace{1.2cm}}}
+\caption{Accuracy--cost Pareto frontier at small scale.}
+\label{fig:pareto}
+\end{figure}
+
+\section{Discussion}
+At the scale relevant to on-device moderation, architecture, training data, and
+instruction tuning dominate raw parameter count. A practitioner is better served by a
+strong 0.5B model plus a task-specific LoRA adapter than by a 2B model run zero-shot---both
+on quality and on the memory/latency budget that determines whether a model fits on the
+target device. We note that Gemma-4-E2B ships without a chat template and was prompted
+raw, which may understate it; even so, its cost makes it an unattractive choice at this
+scale for these tasks.
+
+\section{Limitations}
+Three models, two datasets, single-seed $n{=}500$ slices, and one GPU; latency is
+serving-style on an A100 rather than literal edge silicon. We do not yet include the full
+size ladder (e.g.\ 2.2B SmolVLM) or weight quantisation, which would extend the frontier;
+our claim is restricted to the points measured.
+
+\section{Conclusion}
+For small-scale multimodal hate and sarcasm detection, bigger is not better: a 0.5B VLM
+beats a 2B one at a seventh of the memory, and cheap LoRA adaptation---not scale---is what
+advances the accuracy--cost frontier.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{refs}
+\end{document}

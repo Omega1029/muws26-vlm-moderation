@@ -1,0 +1,76 @@
+# experiment_matrix.yaml — the full sweep for "How far can small VLMs go for
+# efficient multimodal toxic-content detection?" (MUWS 2026, 4pp analysis paper).
+#
+# The cross product (models × quant × adaptation × datasets) IS the contribution.
+# run_sweep.py reads this file, expands the grid, skips infeasible/listed cells,
+# and appends one record per cell to results/leaderboard.jsonl.
+
+meta:
+  gpu: "A100-SXM4-80GB"          # the single named GPU all latency/VRAM is reported on
+  seed: 0
+  results_path: "results/leaderboard.jsonl"
+
+# ── model ladder ────────────────────────────────────────────────────────────
+# `params` is approximate total params; used for the Pareto x-axis when desired.
+models:
+  - name: smolvlm-256m
+    hf_id: HuggingFaceTB/SmolVLM-256M-Instruct
+    family: smolvlm
+    params: 0.256e9
+    role: small
+  - name: smolvlm-500m
+    hf_id: HuggingFaceTB/SmolVLM-500M-Instruct
+    family: smolvlm
+    params: 0.500e9
+    role: small
+  - name: smolvlm-2.2b
+    hf_id: HuggingFaceTB/SmolVLM-Instruct
+    family: smolvlm
+    params: 2.2e9
+    role: small
+  - name: gemma-4-e2b
+    hf_id: google/gemma-4-E2B
+    family: gemma4         # model_type gemma4 → needs transformers≥5 (run via venv-tf5 sidecar)
+    params: 2.0e9          # effective params (E2B)
+    role: small
+  - name: qwen2vl-7b
+    hf_id: Qwen/Qwen2-VL-7B-Instruct
+    family: qwen2vl
+    params: 8.3e9
+    role: anchor          # expensive upper bound
+
+# ── quantization axis ─────────────────────────────────────────────────────────
+# bitsandbytes for the load-time paths; "fp16" is the uncompressed reference.
+quant:
+  - {name: fp16,  load_dtype: float16}
+  - {name: int8,  bnb_8bit: true}
+  - {name: int4,  bnb_4bit: true, bnb_4bit_quant_type: nf4, bnb_4bit_compute_dtype: float16}
+
+# ── adaptation axis ────────────────────────────────────────────────────────────
+adaptation:
+  - {name: zeroshot, kind: prompt, n_shots: 0}
+  - {name: fewshot,  kind: prompt, n_shots: 4}
+  - {name: lora,     kind: lora,   n_shots: 0, ckpt_dir: "checkpoints/{model}_{dataset}_lora"}
+
+# ── datasets ───────────────────────────────────────────────────────────────────
+datasets:
+  - name: hateful_memes
+    task: binary           # hateful vs not
+    primary_metric: auroc  # standard HM metric
+    splits: {train: train, eval: dev}   # dev (499, labeled); test.jsonl is unlabeled holdout
+  - name: mmsd2
+    task: binary           # sarcastic vs not
+    primary_metric: f1
+    splits: {train: train, eval: test}
+
+# ── grid control ────────────────────────────────────────────────────────────────
+grid:
+  # LoRA only makes sense fine-tuned at fp16, then we *quantize the merged model*
+  # for the int8/int4 LoRA cells. Prompting cells run across all quant levels.
+  skip:
+    # don't fine-tune the 7B anchor (it's the upper-bound reference, prompt-only)
+    - {model: qwen2vl-7b, adaptation: lora}
+  # cells to run first for a quick end-to-end smoke before the full sweep
+  smoke:
+    - {model: smolvlm-256m, quant: fp16, adaptation: zeroshot, dataset: mmsd2}
+    - {model: smolvlm-256m, quant: fp16, adaptation: zeroshot, dataset: hateful_memes}

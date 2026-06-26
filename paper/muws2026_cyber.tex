@@ -1,0 +1,370 @@
+%==============================================================================
+% MUWS 2026 — Cyber/endpoint-security reframe of the combined paper.
+% Same experiments, same numbers; framing: offline on-device harmful media scanner.
+% Compile on Overleaf: upload this file + refs.bib; compiler = pdfLaTeX; run twice.
+% NOTE: ~6-7 pages. See trimming notes at the bottom if CFP enforces 4 pages.
+%==============================================================================
+\documentclass[sigconf,nonacm]{acmart}
+\settopmatter{printacmref=false}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\begin{document}
+
+\title{No Cloud Required:\\
+On-Device Small Vision--Language Models for Offline\\
+Detection of Harmful Multimodal Content}
+
+\author{Anonymous Author(s)}
+\affiliation{\institution{Anonymous Institution}\country{}}
+
+\begin{abstract}
+Content moderation systems that depend on cloud APIs offer no protection once a device
+goes offline---a growing gap exploited by harmful media distributed via physical storage,
+peer-to-peer channels, or simply downloaded for later offline viewing. Parental-control
+apps, corporate endpoint-security tools, and school-device management all require a scanner
+that can run \emph{entirely on the device} without a network connection. Compact
+vision--language models (VLMs, $\leq$2B parameters) are a natural candidate---but their
+behaviour as offline content scanners is poorly understood. We evaluate three small VLMs
+(SmolVLM-256M, SmolVLM-500M, Gemma-4-E2B) on two harmful-content benchmarks (Hateful Memes
+and MMSD2.0) under zero-shot and parameter-efficient (LoRA) conditions, and report four
+findings with direct implications for on-device deployment. \textbf{(1) Memory budget, not
+raw parameter count, governs feasibility:} the 0.5B SmolVLM \emph{Pareto-dominates} the
+$\sim$4$\times$-larger Gemma-4-E2B---higher detection quality at $\sim$1/7 the VRAM.
+\textbf{(2) Zero-shot models fail silently:} they emit a near-constant label (SmolVLM
+floods ``yes'', 86--98\%; Gemma floods ``no'', 100\%), making them functionally equivalent
+to a broken scanner---and standard metrics \emph{hide} this failure.
+\textbf{(3) A cheap policy adapter ($<$2\% extra parameters) fixes the collapse first, then
+improves detection---but the gain is 7$\times$ larger for sarcastic content than for
+adversarially designed hate memes.} \textbf{(4) A hate adapter transfers to sarcasm
+detection; the reverse does not hold}---useful guidance for bootstrapping a new content
+category from an existing one. We release a reproducible evaluation harness and distil
+concrete deployment recommendations.
+\end{abstract}
+
+\keywords{on-device content moderation, offline scanning, harmful memes, multimodal safety,
+endpoint security, vision--language models, LoRA, cross-task transfer}
+
+\maketitle
+
+%------------------------------------------------------------------------------
+\section{Introduction}
+%------------------------------------------------------------------------------
+Harmful multimodal content---hateful memes, inappropriate images with overlaid text,
+ironic abuse---is increasingly distributed \emph{outside} the reach of server-side
+moderation. A child may download videos and image sets for offline viewing before a device
+is handed to them; harmful memes spread via USB drives, AirDrop, or encrypted peer-to-peer
+channels that bypass network inspection; an air-gapped corporate workstation can accumulate
+policy-violating media with no cloud service ever observing it. In all these scenarios,
+the only viable moderation path is a scanner that runs locally on the endpoint itself.
+
+Existing endpoint content-moderation tools rely primarily on perceptual hashing of known
+contraband (e.g.\ PhotoDNA for CSAM), which offers no coverage for \emph{novel} or
+\emph{borderline} harmful material that has not yet been catalogued. A semantic,
+generalisation-capable model is needed. Small VLMs are the only class of multimodal models
+that can plausibly run inference on consumer-grade hardware (a laptop or tablet GPU or
+even CPU) within the memory and latency budgets of a background scanning process. Yet their
+behaviour at the $\leq$2B scale on harmful-content detection tasks is largely uncharted.
+
+This paper characterises the practical viability of small VLMs as on-device harmful-content
+scanners via four interlocking findings. The picture that emerges is sobering but
+actionable: zero-shot models are \emph{not} deployable as scanners---they silently fail in
+a way that would give a false sense of security---but a single round of lightweight
+adaptation (LoRA, $<$2\% extra parameters, negligible inference overhead) converts the best
+small model into a functional classifier. The catch is that this works well for some
+content categories and poorly for others, and the gap is explainable.
+
+\noindent\textbf{Contributions.}
+\begin{itemize}
+\item A memory-footprint Pareto analysis showing a 0.5B model Pareto-dominates a 2B one
+for on-device deployment (\S\ref{sec:scale}).
+\item Evidence of \emph{label-prior collapse}---a silent failure mode where a VLM acts as
+a broken scanner---and a demonstration that standard metrics hide it
+(\S\ref{sec:collapse}).
+\item A matched-budget LoRA study showing that policy adaptation first \emph{fixes} the
+broken scanner, then delivers a 7$\times$ difficulty gap across content categories
+(\S\ref{sec:adapt}).
+\item A cross-category transfer matrix showing that a hate adapter bootstraps sarcasm
+detection but not vice versa (\S\ref{sec:transfer}).
+\end{itemize}
+
+%------------------------------------------------------------------------------
+\section{Related Work}
+%------------------------------------------------------------------------------
+\textbf{Harmful-content benchmarks.} The Hateful Memes Challenge~\cite{kiela2020hateful}
+introduced ``benign confounders'' so that unimodal or shallow models fail; it closely
+resembles content that circulates in the wild because images and text are independently
+benign but jointly toxic. MMSD2.0~\cite{qin2023mmsd2} re-annotates the multimodal sarcasm
+corpus of \citet{cai2019multimodal} to remove spurious text-only cues, making it resistant
+to text-alone classifiers. HarMeme~\cite{pramanick2021harmeme} extends hate memes to new
+political and social domains. Together these benchmarks represent the kinds of novel,
+semantically grounded harmful images that hash-based endpoint tools cannot catch.
+
+\textbf{Efficient VLMs for edge deployment.} SmolVLM~\cite{marafioti2025smolvlm}, built on
+Idefics3~\cite{laurencon2024idefics3}, and Gemma~\cite{gemma2025} bring
+$\leq$2B-parameter multimodal models to consumer hardware. LoRA~\cite{hu2022lora} and
+QLoRA~\cite{dettmers2023qlora} allow task-specific adaptation with negligible inference
+overhead---important when a scanner must not perceptibly slow down the host device.
+
+\textbf{Calibration and silent failures.} Calibration of neural classifiers in the unimodal
+setting is well studied~\cite{guo2017calibration}. We show that the dominant failure of
+zero-shot small VLMs is not miscalibration but \emph{prediction collapse}---the model
+functions as a constant-output device, not a miscalibrated one---and that standard
+thresholded metrics (F1, accuracy) hide this from system evaluators. Zero-shot
+vision--language transfer is established for recognition tasks~\cite{radford2021clip}; we
+examine cross-\emph{category} transfer between two distinct harmful-content tasks.
+
+%------------------------------------------------------------------------------
+\section{Experimental Setup}\label{sec:setup}
+%------------------------------------------------------------------------------
+\textbf{Models.} SmolVLM-256M-Instruct ($\sim$489 MB weights), SmolVLM-500M-Instruct
+($\sim$968 MB), and Gemma-4-E2B ($\sim$9,736 MB, $\sim$2B effective parameters). Memory
+footprints are reported as peak allocated GPU VRAM at inference, which determines whether
+the model can coexist with a host application on a device.
+
+\textbf{Content categories.} \emph{Hate:} Hateful Memes~\cite{kiela2020hateful} balanced
+dev split, $n{=}500$, AUROC primary metric. \emph{Sarcasm/irony:} MMSD2.0
+\texttt{mmsd-v2}~\cite{qin2023mmsd2} test split, $n{=}500$. Both represent multimodal
+content where the image and text must be jointly interpreted---exactly the class that
+hash-based tools and text-only classifiers miss.
+
+\textbf{Scanning protocol.} Each model receives a task instruction, the image, and a binary
+question (``Is this content hateful/sarcastic?''). We extract $P(\text{yes})$ from the
+softmax over the yes/no answer tokens---a continuous risk score for AUROC---and threshold
+at 0.5 for hard flag/no-flag decisions. Gemma ships without a chat template and is queried
+with a flattened raw prompt.
+
+\textbf{Policy adaptation (LoRA).} We simulate per-organisation policy customisation:
+LoRA~\cite{hu2022lora} rank 16 on all attention and MLP projections (1.85\% of parameters),
+generative SFT on 3{,}000 examples for 2 epochs in bf16. At inference, the adapter adds
+negligible overhead ($<$2\% parameter increase; identical latency profile). The adapter
+could be shipped as a small policy file alongside the base model.
+
+\textbf{Metrics.} AUROC (rank-based, threshold-free, robust to the label-prior collapse
+documented in \S\ref{sec:collapse}); accuracy; and \emph{prediction-positive rate}
+(\texttt{pred\_pos})---the fraction of inputs flagged as harmful, which exposes a broken
+scanner. \textbf{Hardware.} All runs on a single NVIDIA A100 (80 GB); latency is the
+median of 50 timed single-sample batch-1 runs after 5 warmup steps, representing a
+single-item real-time scan query.
+
+%------------------------------------------------------------------------------
+\section{Finding 1: Memory Budget, Not Parameter Count, Governs Viability}\label{sec:scale}
+%------------------------------------------------------------------------------
+A practical on-device scanner must coexist with an operating system, other processes, and
+potentially a user's applications on hardware that may have 4--16 GB of GPU-accessible
+VRAM. Table~\ref{tab:zs} shows the zero-shot detection quality of each model against its
+actual VRAM footprint. The frontier is \emph{non-monotone}: SmolVLM-256M sits at chance,
+SmolVLM-500M is the best model on both content categories, and the larger Gemma-4-E2B
+falls back toward chance while consuming $\sim$7$\times$ the memory and higher per-query
+latency.
+
+SmolVLM-500M therefore \emph{Pareto-dominates} Gemma-4-E2B as a scanner: it detects better
+at a fraction of the cost. Critically, SmolVLM-500M's $\sim$1.5 GB peak VRAM footprint fits
+on any device with a 4 GB GPU or even quantised to INT8 on CPU-only hardware, whereas
+Gemma-4-E2B requires $\sim$10 GB, ruling out most consumer endpoints. At this scale,
+architecture, instruction-tuning quality, and training data dominate raw parameter count.
+
+\begin{table}[t]
+\centering
+\caption{Zero-shot detection quality vs.\ on-device cost (fp16, $n{=}500$, A100). AUROC is
+the reliable metric (\S\ref{sec:collapse}); \texttt{pred\_pos} flags a broken scanner.
+SmolVLM-500M fits on any 4 GB device; Gemma-4-E2B requires $\sim$10 GB.}
+\label{tab:zs}
+\begin{tabular}{lccccc}
+\toprule
+& \multicolumn{2}{c}{AUROC} & & Peak VRAM & Scan lat. \\
+\cmidrule(lr){2-3}
+Model & Hate & Sarcasm & \texttt{pred\_pos} & (MB) & (ms/item) \\
+\midrule
+SmolVLM-256M & 0.513 & 0.502 & 0.86--0.98 & \(\sim\)960  & 70 \\
+SmolVLM-500M & \textbf{0.581} & \textbf{0.600} & 0.93--0.98 & \(\sim\)1{,}450 & 69 \\
+Gemma-4-E2B  & 0.528 & 0.527 & 0.00        & \(\sim\)10{,}170 & 86 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% TODO Fig.1: AUROC (y) vs. peak VRAM (x, log scale) scatter; Pareto frontier dashed;
+% star = SmolVLM-500M + LoRA. Generate from results/leaderboard.jsonl.
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{1.0cm}\textit{Figure 1 (placeholder):
+Detection quality vs.\ VRAM Pareto scatter (log-x); SmolVLM-500M dominates Gemma-4-E2B;
++LoRA point highest; 4 GB device boundary marked.}\vspace{1.0cm}}}
+\caption{On-device viability: detection quality vs.\ memory footprint.}
+\label{fig:pareto}
+\end{figure}
+
+%------------------------------------------------------------------------------
+\section{Finding 2: Zero-Shot Models Fail Silently as Scanners}\label{sec:collapse}
+%------------------------------------------------------------------------------
+The AUROC values in Table~\ref{tab:zs} (0.50--0.60) already suggest weak separability, but
+the \texttt{pred\_pos} column reveals a more dangerous failure: SmolVLM flags 86--98\% of
+\emph{all} inputs as harmful; Gemma flags \emph{nothing} (0\%). Neither model behaves as a
+classifier. They emit a near-constant output regardless of content.
+
+This is not a miscalibrated scanner---it is a \emph{broken} one. A device running
+zero-shot SmolVLM would generate near-universal false alarms, while one running Gemma would
+silently pass every item. The failure is especially dangerous because \emph{standard metrics
+hide it}. On a positive-skewed slice ($n{=}50$ items, majority harmful), SmolVLM-256M
+yields an apparent \textbf{F1 of 0.89}---the kind of number that would make a security
+engineer confident in the system. The same configuration on a balanced $n{=}500$ slice
+yields AUROC 0.50 and sub-baseline accuracy. The strong F1 was an artifact of a
+``flag-everything'' model meeting a mostly-harmful evaluation set.
+
+The implication for security system evaluation is direct: \textbf{never validate a
+content scanner on an imbalanced slice}. AUROC (threshold-free, balance-insensitive) and
+\texttt{pred\_pos} (or the full score histogram, Fig.~\ref{fig:hist}) are the minimum
+honest standard. A scanner that outputs the same score for benign and harmful content
+provides no security guarantee regardless of how its F1 looks on a biased test set.
+
+% TODO Fig.2: P(yes) score histograms per model -- SmolVLM mass near 1.0, Gemma mass near
+% 0.0, showing the constant-output failure mode.
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.9\columnwidth}{\centering\vspace{1.0cm}\textit{Figure 2 (placeholder):
+$P(\text{yes})$ score histograms per model. SmolVLM: mass piled at 1.0 (flags everything).
+Gemma: mass piled at 0.0 (flags nothing). A functioning scanner would show bimodal
+separation.}\vspace{1.0cm}}}
+\caption{Broken-scanner diagnostic: output-distribution collapse.}
+\label{fig:hist}
+\end{figure}
+
+%------------------------------------------------------------------------------
+\section{Finding 3: A Cheap Policy Adapter Fixes the Scanner---But Gains Differ 7$\times$
+by Content Category}\label{sec:adapt}
+%------------------------------------------------------------------------------
+We fine-tune SmolVLM-500M with a LoRA adapter on each content category under an identical
+recipe (\S\ref{sec:setup}). This simulates deploying a per-organisation policy file---a
+small set of weights that customises the base model without changing it. Two effects stand
+out (Table~\ref{tab:matrix}, diagonal).
+
+\noindent\textbf{The adapter fixes the broken scanner first.} On both tasks, \texttt{pred\_pos}
+moves from $\sim$0.95 toward the ground-truth prevalence rate ($0.36$ for hate, $0.29$ for
+sarcasm). Fine-tuning's first-order effect is to stop the constant-flag collapse and
+produce a model that actually \emph{abstains} on benign content---the minimum requirement
+for a deployable scanner.
+
+\noindent\textbf{Then the gains diverge by 7$\times$.} After de-biasing, sarcasm detection
+improves dramatically ($0.600\to0.881$ AUROC, $+0.28$), while hate detection barely moves
+($0.581\to0.619$, $+0.04$). Importantly, training loss converges to $\sim$0.1 for
+\emph{both} tasks---the model memorises hate training examples as readily as sarcasm
+ones---yet the hate adapter fails to generalise to held-out items. This is the signature of
+the adversarial ``benign confounder'' design of the Hateful Memes
+benchmark~\cite{kiela2020hateful}: surface-learnable train-set patterns do not transfer to
+the evaluation set, which pairs each hateful item with a visually similar benign one. For
+a practical scanner, this means that hate-meme detection is a fundamentally harder
+engineering target than sarcasm: more diverse labelled data, harder negatives, or
+confounder-aware training are needed, not simply more fine-tuning steps.
+
+%------------------------------------------------------------------------------
+\section{Finding 4: A Hate Adapter Bootstraps Sarcasm; Not the Reverse}\label{sec:transfer}
+%------------------------------------------------------------------------------
+A common deployment scenario: an organisation has labelled data for one content policy
+(e.g.\ hate speech) and wants to extend coverage to a second category (e.g.\ sarcastic
+harassment) with minimal additional labelling. Table~\ref{tab:matrix} (off-diagonal) shows
+whether LoRA adapters transfer across categories.
+
+The hate-trained adapter \emph{raises sarcasm detection} from the zero-shot floor of 0.600
+to \textbf{0.668}---exceeding both the sarcasm zero-shot baseline and the hate adapter's
+own in-domain hate score (0.619). The sarcasm-trained adapter, by contrast, leaves hate
+detection essentially at the floor ($0.581\to0.594$). Transfer is strongly asymmetric.
+
+The mechanism appears to be that hate fine-tuning instils a general
+``read image and text jointly, commit to a decision'' behaviour required to resolve
+confounder pairs---a skill that benefits any task requiring multimodal grounding, including
+sarcasm. Sarcasm fine-tuning, in contrast, appears to latch onto a narrower
+image--text incongruity cue that does not transfer back.
+
+\textbf{Practical deployment corollary:} if building a scanner for a new content
+category with limited labelled data, starting from a hate-detection adapter is a better
+warm start than starting from a sarcasm one---or from zero-shot.
+
+\begin{table}[t]
+\centering
+\caption{Cross-category transfer matrix, SmolVLM-500M (fp16, $n{=}500$): AUROC
+(\texttt{pred\_pos}). Diagonal = in-domain (bold); off-diagonal = cross-category transfer.
+Hate adapter cross-transfers positively to sarcasm; reverse does not hold.}
+\label{tab:matrix}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Adapter trained on} $\downarrow$ & Hate AUROC & Sarcasm AUROC \\
+\midrule
+none (zero-shot floor) & 0.581 (0.93) & 0.600 (0.98) \\
+Hate memes             & \textbf{0.619 (0.36)} & 0.668 (0.61) \\
+Sarcasm                & 0.594 (0.65) & \textbf{0.881 (0.29)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%------------------------------------------------------------------------------
+\section{Deployment Recommendations}\label{sec:recs}
+%------------------------------------------------------------------------------
+Our findings translate into concrete guidance for practitioners building on-device harmful
+content scanners.
+
+\noindent\textbf{Model selection.} Choose SmolVLM-500M (or similarly efficient $\sim$0.5B
+instruction-tuned VLMs) over larger models. At $\sim$1.5 GB peak VRAM, it fits on any
+consumer GPU at fp16 and is a candidate for quantised CPU-only deployment. Larger
+($\sim$2B$+$) models provide no quality improvement at this scale and exceed the memory
+budgets of most endpoint devices.
+
+\noindent\textbf{Never ship zero-shot.} A zero-shot small VLM is a broken scanner. It
+produces near-constant outputs that give a false sense of security and will not survive
+a balanced audit. Always apply at minimum a small LoRA adapter trained on task-representative
+data before deployment.
+
+\noindent\textbf{Evaluate with AUROC and pred\_pos.} Do not validate a scanner on
+skewed test slices or with F1/accuracy alone. Report AUROC (threshold-insensitive) and the
+prediction-positive rate (\texttt{pred\_pos}); a functioning scanner must show
+discrimination, not constant output.
+
+\noindent\textbf{Budget for hate to be hard.} Adapters for hate-meme detection converge in
+training but do not generalise well. Expect to invest in more diverse training data,
+hard-negative mining, or confounder-aware augmentation. A sarcasm adapter converging to a
+similar training loss is not an equivalent outcome.
+
+\noindent\textbf{Bootstrap new categories from hate.} When labelled data for a new content
+category is scarce, initialise from a hate-detection adapter rather than from zero-shot or
+a sarcasm adapter.
+
+%------------------------------------------------------------------------------
+\section{Limitations}
+%------------------------------------------------------------------------------
+We study three models, two content categories, and single-seed $n{=}500$ balanced slices
+(AUROC CI $\approx\pm0.03$--$0.04$). We benchmark on a server-grade A100; actual on-device
+inference on laptop or mobile silicon will differ in latency and may require INT8/INT4
+quantisation, which we have not yet evaluated. Gemma-4-E2B is evaluated without a chat
+template (raw prompt), so its collapse may partly reflect prompt sensitivity rather than a
+fundamental model property. We do not evaluate on truly novel or adversarial harmful
+content beyond the two benchmarks, and we do not study detection evasion (adversarial
+images). The hate-generalisation gap is inferred from train-loss/AUROC mismatch; a
+full attribution study (e.g.\ confounder-stratified error analysis) would strengthen the
+claim.
+
+%------------------------------------------------------------------------------
+\section{Conclusion}
+%------------------------------------------------------------------------------
+Small VLMs are a viable architectural basis for on-device, offline harmful-content
+scanners---but only after lightweight policy adaptation. Zero-shot models silently fail as
+scanners, and standard metrics conceal this failure. A single LoRA adapter ($<$2\% extra
+parameters) converts a broken scanner into a functional one, though the detection gain
+afterwards is 7$\times$ larger for sarcastic content than for adversarially designed hate
+memes---a gap that reflects the relative difficulty of these content categories for compact
+models, not a failure of the adaptation method. Transfer across categories is real but
+asymmetric: a hate adapter is a useful bootstrap for sarcasm coverage when labelled data
+is scarce, while the reverse does not hold. We release a reproducible harness and hope
+these findings improve how on-device multimodal moderation tools are built, evaluated,
+and reported.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{refs}
+
+%==============================================================================
+% TRIMMING TO 4 PAGES (if the CFP enforces it):
+%  - Merge Findings 3 & 4 under one "Adaptation and Transfer" section; keep Table 2 only.
+%  - Cut Figure 2 (keep the broken-scanner F1 paragraph as text).
+%  - Compress Related Work to 4-5 sentences.
+%  - Fold Deployment Recommendations into the Conclusion.
+%  - Drop the per-contribution itemize in the intro.
+%==============================================================================
+\end{document}
