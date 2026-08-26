@@ -33,7 +33,7 @@ Gemma-4-E2B, which regresses toward chance at $\sim$7$\times$ the memory.
 \emph{hide} this---a class-skewed slice yields an apparent F1 of 0.89 that is pure
 artifact. \textbf{(3) Adaptation de-biases, and exposes a difficulty gap:} under a matched
 LoRA budget, sarcasm improves by $+0.28$ AUROC but hate by only $+0.04$ ($\sim$7$\times$),
-with the model's prediction rate moving from $\sim$0.95 to the base rate in both cases.
+with the model's prediction rate falling from $\sim$0.95 to $0.29$--$0.36$ in both cases.
 \textbf{(4) Transfer is asymmetric:} a hate-trained adapter raises sarcasm above its
 zero-shot floor, but a sarcasm-trained adapter does not help hate. We distil these into
 concrete reporting recommendations for small-model multimodal moderation and release a
@@ -176,9 +176,11 @@ diagram.}\vspace{1.0cm}}}
 We fine-tune the best small model, SmolVLM-500M, with LoRA on each task under an identical
 recipe (\S\ref{sec:setup}). Two effects stand out (Table~\ref{tab:matrix}, diagonal).
 
-\noindent\textbf{De-biasing first.} On both tasks, \texttt{pred\_pos} moves from
-$\sim$0.95 toward the true base rate ($0.36$ hate, $0.29$ sarcasm): fine-tuning's
-first-order effect is to stop the constant-answer collapse.
+\noindent\textbf{De-biasing first.} On both tasks, \texttt{pred\_pos} collapses from
+$\sim$0.95 to $0.36$ (hate) and $0.29$ (sarcasm): fine-tuning's first-order effect is to stop
+the constant-answer behaviour. Note that this \emph{overshoots} the evaluation-set base rate
+in both cases ($0.50$ hate, $0.42$ sarcasm), so the adapted model is mildly conservative
+rather than calibrated---but it is answering the input rather than answering a constant.
 
 \noindent\textbf{A $\sim$7$\times$ difficulty gap.} Separability then improves
 dramatically for sarcasm ($0.600\to0.881$, $+0.28$ AUROC) but only marginally for hate

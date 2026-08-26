@@ -240,10 +240,12 @@ small set of weights that customises the base model without changing it. Two eff
 out (Table~\ref{tab:matrix}, diagonal).
 
 \noindent\textbf{The adapter fixes the broken scanner first.} On both tasks, \texttt{pred\_pos}
-moves from $\sim$0.95 toward the ground-truth prevalence rate ($0.36$ for hate, $0.29$ for
-sarcasm). Fine-tuning's first-order effect is to stop the constant-flag collapse and
-produce a model that actually \emph{abstains} on benign content---the minimum requirement
-for a deployable scanner.
+falls from $\sim$0.95 to $0.36$ (hate) and $0.29$ (sarcasm). Fine-tuning's first-order effect is
+to stop the constant-flag collapse and produce a model that actually \emph{abstains} on benign
+content---the minimum requirement for a deployable scanner. The adapted flag rate sits
+\emph{below} the prevalence of the evaluation slices ($0.50$ hate, $0.42$ sarcasm), i.e.\ the
+scanner is now somewhat under-flagging rather than over-flagging; for a deployment that
+prefers recall, the operating threshold should be tuned on the score rather than left at $0.5$.
 
 \noindent\textbf{Then the gains diverge by 7$\times$.} After de-biasing, sarcasm detection
 improves dramatically ($0.600\to0.881$ AUROC, $+0.28$), while hate detection barely moves
