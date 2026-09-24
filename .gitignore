@@ -22,3 +22,6 @@ paper/*.synctex.gz
 paper/*.fls
 paper/*.fdb_latexmk
 paper/*.pdf
+
+# agent-paper run outputs (regenerate with agent_paper/scripts/run_agent.py)
+agent_paper/results/

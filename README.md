@@ -4,6 +4,8 @@
 **Workshop:** MUWS 2026 @ ACM Multimedia, Rio de Janeiro, Nov 10–14, 2026  
 **Submission deadline:** July 16, 2026
 
+> **New:** `agent_paper/` — starter kit for the Kaggle *Gemma 4 Developer Agent Paper Track* (deadline 2026-11-12). See `agent_paper/README.md`.
+
 ---
 
 ## What this is
