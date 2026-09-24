@@ -1,18 +1,16 @@
-# Resolve Rate Is Not Enough
-### Diagnosing and fixing silent failure in local Gemma 4 coding agents
+# Resolve Rate Is Not Enough: Diagnosing and Fixing Silent Failure in Local Gemma 4 Coding Agents
 
 > Kaggle Writeup draft. Paste into the Writeup editor on the competition page. Replace every `TODO`.
-> **Hard limit: 3,000 words.** Required: title + subtitle, abstract, introduction, methods & experiments,
-> related work + citations. Judged on Novelty · Quality · Relevance · Verifiability · Clarity (0–5 each).
-> Paper type: **empirical**, plus a resource (the open diagnostics harness). Link the public notebook in Project Links.
+> Paper type: **empirical** (plus a resource: the open diagnostics harness).
+> Map each section to the five judging criteria once you've copied them from the Evaluation tab.
 
-## Abstract
+## TL;DR
 TODO (3 sentences): Small local coding agents fail silently. Resolve rate can't tell a model that tries
 and misses apart from one that loops, emits malformed calls, or submits without testing. We measure these
 failure modes across the Gemma 4 family, show they are common and that resolve rate hides them, and find
 that cheap scaffold and LoRA fixes remove the collapse first. Resolve-rate gains follow.
 
-## 1. Introduction
+## 1. Motivation
 - Frontier coding agents need cloud models; many developers can't use them (cost, privacy, air-gapped work).
 - Small local models (Gemma 4 E2B/E4B/26B-A4B/31B-QAT) are now close, but they fail at multi-turn SWE work.
 - Resolve rate alone gives no guidance on *what to fix*. TODO: cite an example where two configs tie on resolve rate but fail differently.
@@ -44,20 +42,15 @@ TODO: logistic regression of `resolved` on diagnostics vs. on model size (report
 | text-JSON vs native tools | 0 | TODO | | | |
 | verify-before-submit rule | 0 | | | | |
 | loop breaker (reject repeated action) | 0 | | | | |
-| code-graph tools (neighbours + embedding search) | 0 train | | | | |
 | trajectory-SFT LoRA (r=16) | ~1 GPU-h | | | | |
 
 ## 7. RQ4: Budget
 TODO Pareto figure: resolve rate vs. peak VRAM (log-x), marker size = mean tokens.
 
-## 8. Related work
-TODO: SWE-bench and SWE-agent (benchmarks, agent-computer interfaces); agent failure analyses; small/local code models;
-code-graph retrieval for repositories; PEFT for agents. State how each differs from this paper.
-
-## 9. Limitations
+## 8. Limitations
 TODO: task subset size, public-repo contamination risk, single scaffold, sandbox differences from the official evaluator.
 
-## 10. Reproducibility
+## 9. Reproducibility
 Code: TODO public repo / Kaggle notebook link. Every number comes from `results/runs.jsonl` via `scripts/summarize.py`.
 Trajectories released in `results/trajectories/`.
 
