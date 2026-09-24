@@ -5,26 +5,38 @@ Deliverable: a **Kaggle Writeup** (markdown, on Kaggle) documenting *unpublished
 advances agentic software engineering with small/local models.
 **Deadline: 2026-11-12, 23:59 UTC.** Drafts that are not submitted by then are not judged.
 
-## What we know about the rules (check on the Kaggle page, which blocks automated access)
+## Rules (from the competition page, 2026-09-24)
 
-| Item | Status | Detail |
+- **Deliverable:** Kaggle Writeup, **≤ 3,000 words**, original and unpublished (non-archival, so it can go to a conference later).
+  It must include: **title + subtitle, abstract, introduction, methods & experiments, related work + citations**.
+- **Optional:** a public notebook (Project Links) and/or an arXiv-style PDF (Public Project Link). No login or paywall.
+- **Deadline:** 2026-11-12, 23:59 UTC. Press **Submit**. Saved drafts are not judged.
+- **Scoring:** five criteria, each 0–5, equal weight, averaged. Ties go to whoever entered first, **so join now**.
+
+| Criterion | What judges ask | How this paper answers it |
 |---|---|---|
-| Timeline | confirmed (search results) | started 2026-09-22 · final submission 2026-11-12 |
-| Format | confirmed | Kaggle Writeup covering methods, experiments, details |
-| Scoring | confirmed | 5 criteria, each scored 0–5, averaged; top 3 papers win |
-| Paper types | confirmed | **resource** (new dataset/tool/software) or **empirical** (new knowledge/experiments) |
-| Main-comp entry | confirmed | not required, but encouraged |
-| Prize | partly confirmed | shown at a Google-hosted NeurIPS 2026 expo; one third-party source says a $35k pool |
-| The 5 criteria by name | **unknown** | read the Evaluation tab and fill this in ↓ |
+| **Novelty** | new insights; important properties of existing methods | resolve rate hides agent collapse; the diagnostic profile explains failures that model size doesn't |
+| **Quality** | generalizes beyond the competition? | harness-agnostic metrics; report on more than one task source (SWE-bench subset + toy/other) and more than one model size |
+| **Relevance** | impact on SWE + agentic learning | tells practitioners *what to fix* in local agents, and which fixes are cheapest |
+| **Verifiability** | enough detail on method + data | public notebook, released trajectories, every number from `runs.jsonl` via `summarize.py` |
+| **Clarity** | clear writing | one headline figure per RQ; stay well under 3,000 words |
 
-Main competition context (from a third-party repo's notes, **not verified**; it's the setting reviewers will judge you against):
+**Prizes ($35k):** Overall Best Paper $15k · **Best New Resource** $10k (dataset/tool/software) ·
+**Best New Application** $10k (new use-cases, especially of **code-graphs / the provided embeddings**).
+Listed topics: PEFT/RL for SWE agents, code comprehension (code graphs, parsing, embeddings),
+tasks & benchmarks, graph reasoning. Many of the judges are graph-ML researchers.
+
+**Strategic implication:** the diagnostics harness is a natural **Resource** entry. To also be competitive
+on topic fit, add the code-graph dimension: implement `get_code_neighbors` / `search_similar_code`-style
+tools (AST call graph + embeddings) and measure whether graph tools *reduce collapse* (fewer blind reads
+and loops, earlier first edit). That makes RQ3 a graph-reasoning result, not only a prompting one.
+
+Main competition context (from a third-party repo's notes, **not verified**):
 `gemma-4-31b-it-qat-w4a16-ct` served by vLLM on 4×L4, up to 8 LoRA adapters (rank ≤ 128),
 ~120 hidden SWE tasks from private repos, 12 h total budget. Score = % of patches that make the hidden tests pass.
 Tools: `run_command` (300 s), `read_file` (150 lines / 10k chars), `edit_file`, `write_file`, `get_status`,
-`submit_patch`, plus two code-graph tools. Declarative submission (`agent.yaml` + prompts/skills/adapters).
-
-> **TODO (5 min):** open the Overview → Evaluation tab and paste the five criteria here. Then tick off
-> each criterion against the outline in `writeup/WRITEUP.md`.
+`submit_patch`, plus two code-graph tools (`get_code_neighbors`, `search_similar_code`).
+Check the main competition's Data tab for the official tool specs and the provided embeddings.
 
 ## Recommended angle: bring the MUWS26 method to coding agents
 
@@ -58,7 +70,7 @@ This counts as **empirical**, and the diagnostics harness plus the toy/SWE task 
 | 1 | Sep 24–30 | Read rules/criteria. Serve Gemma 4 E4B locally (vLLM/Ollama). Run toy tasks. Add a SWE-bench-Lite/Verified subset (~50 instances) to the task format | harness validated on real model |
 | 2 | Oct 1–7 | **RQ1** sweep: E2B, E4B, 26B-A4B, 31B-QAT × native/text tools × 50 tasks × 3 seeds (temp 0.7) | `results/runs.jsonl`, first diagnostics table |
 | 3 | Oct 8–14 | **RQ2** analysis: failure taxonomy (hand-label ~100 trajectories), correlate diagnostics with resolve | taxonomy figure |
-| 4 | Oct 15–21 | **RQ3** scaffold interventions (verify-before-submit, loop breaker, budget prompts) | ablation table |
+| 4 | Oct 15–21 | **RQ3** scaffold interventions (verify-before-submit, loop breaker) **+ code-graph tools** (call-graph neighbours, embedding search) | ablation table |
 | 5 | Oct 22–28 | **RQ3** LoRA: SFT on successful trajectories from the 31B, applied to E4B (reuse `../src/train_lora.py` patterns) | before/after table |
 | 6 | Oct 29–Nov 4 | **RQ4** Pareto figure; write the full draft | draft Writeup |
 | 7 | Nov 5–11 | Polish, reproducibility section, public notebook + repo link. **Submit by Nov 11** (one day buffer) | submitted Writeup |
